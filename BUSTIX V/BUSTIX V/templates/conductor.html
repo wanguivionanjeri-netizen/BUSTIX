@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+{% block title %}Conductor — BusTix{% endblock %}
+{% block role_label %}Conductor{% endblock %}
+
+{% block nav %}
+<div class="nav-section">My Work</div>
+<a class="nav-item active" onclick="showTab('my-trips')"><div class="nav-dot"></div>My Trips</a>
+<a class="nav-item" onclick="showTab('issue')"><div class="nav-dot"></div>Issue Ticket</a>
+<a class="nav-item" onclick="showTab('summary')"><div class="nav-dot"></div>My Summary</a>
+{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <h1 id="topbar-title">My Trips</h1>
+  <span class="live-badge"><span class="live-dot"></span>Live</span>
+</div>
+<div class="content">
+
+<!-- MY TRIPS -->
+<div id="tab-my-trips">
+  <div id="conductor-trips"></div>
+</div>
+
+<!-- ISSUE TICKET -->
+<div id="tab-issue" style="display:none">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title">Issue Ticket</div></div>
+
+      <div class="field">
+        <label>Select Trip</label>
+        <select id="iss-trip" onchange="onTripSelect()">
+          <option value="">Loading trips...</option>
+        </select>
+      </div>
+
+      <div id="trip-info" style="display:none;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:14px;font-size:13px">
+        <div class="flex justify-between" style="margin-bottom:8px"><span class="text-muted">Route</span><strong id="ti-route">—</strong></div>
+        <div class="flex justify-between" style="margin-bottom:8px"><span class="text-muted">Bus</span><strong id="ti-bus">—</strong></div>
+        <div class="flex justify-between" style="margin-bottom:8px"><span class="text-muted">Base Fare</span><strong class="text-yellow" id="ti-fare">—</strong></div>
+        <div class="flex justify-between"><span class="text-muted">Passengers</span><strong id="ti-pax">—</strong></div>
+      </div>
+
+      <div id="no-trips-msg" style="display:none;background:var(--red-dim);border:1px solid rgba(239,68,68,0.25);border-radius:8px;padding:12px 14px;font-size:13px;color:var(--red);margin-bottom:14px">
+        No active or scheduled trips assigned to you. Ask your manager to schedule a trip first.
+      </div>
+
+      <div class="field"><label>Passenger Name (optional)</label><input id="iss-name" placeholder="e.g. John Kamau"></div>
+      <div class="form-row">
+        <div class="field"><label>Seat No.</label><input id="iss-seat" placeholder="1"></div>
+        <div class="field"><label>Fare (KSh)</label><input id="iss-fare" type="number" placeholder="1500"></div>
+      </div>
+      <div class="field"><label>Payment Method</label>
+        <select id="iss-method">
+          <option value="cash">Cash</option>
+          <option value="mpesa">M-Pesa</option>
+          <option value="card">Card</option>
+        </select>
+      </div>
+      <button class="btn btn-primary w-full" onclick="issueTicket()" id="iss-btn" style="margin-top:6px">Issue Ticket</button>
+    </div>
+
+    <div>
+      <div style="font-size:14px;font-weight:600;margin-bottom:14px">Last Issued Ticket</div>
+      <div id="last-ticket">
+        <div class="empty" style="background:var(--card);border:1px solid var(--border);border-radius:12px"><p style="color:var(--text3)">No ticket issued yet this session</p></div>
+      </div>
+
+      <div style="font-size:14px;font-weight:600;margin:20px 0 12px">Recent Tickets</div>
+      <div id="recent-tickets">
+        <div style="color:var(--text3);font-size:13px;padding:12px 0">Tickets will appear here</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SUMMARY -->
+<div id="tab-summary" style="display:none">
+  <div id="my-summary"></div>
+</div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let tripsData=[];
+let recentTickets=[];
+
+function showTab(name){
+  ['my-trips','issue','summary'].forEach(t=>{
+    document.getElementById('tab-'+t).style.display=t===name?'':'none';
+    document.querySelectorAll('.nav-item').forEach(el=>{
+      if(el.getAttribute('onclick')===`showTab('${t}')`)el.classList.toggle('active',t===name);
+    });
+  });
+  const titles={'my-trips':'My Trips','issue':'Issue Ticket','summary':'My Summary'};
+  document.getElementById('topbar-title').textContent=titles[name]||name;
+  if(name==='my-trips')loadMyTrips();
+  if(name==='issue')loadIssueTab();
+  if(name==='summary')loadSummary();
+}
+
+async function loadMyTrips(){
+  try{
+    tripsData=await api('/api/conductor/my_trips');
+    const el=document.getElementById('conductor-trips');
+    if(!tripsData.length){
+      el.innerHTML='<div class="panel"><div class="empty"><p>No trips assigned to you. Contact your manager to schedule a trip.</p></div></div>';
+      return;
+    }
+    el.innerHTML=tripsData.map(t=>`
+      <div class="panel" style="margin-bottom:14px">
+        <div class="flex justify-between items-center mb-4">
+          <div class="flex items-center gap-2">
+            <code style="color:var(--accent);font-weight:700;font-size:13px">${t.code}</code>
+            <span class="status ${t.status}">${t.status}</span>
+          </div>
+          <div class="flex gap-2">
+            ${t.status==='scheduled'?`<button class="btn btn-green btn-sm" onclick="startTrip(${t.id},this)">Start Trip</button>`:''}
+            <button class="btn btn-primary btn-sm" onclick="gotoIssue(${t.id})">Issue Ticket</button>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">
+          <div><div class="text-sm text-muted" style="margin-bottom:3px">Route</div><div style="font-weight:600">${t.route}</div></div>
+          <div><div class="text-sm text-muted" style="margin-bottom:3px">Bus</div><div style="font-weight:600">${t.bus}</div></div>
+          <div><div class="text-sm text-muted" style="margin-bottom:3px">Departure</div><div style="font-weight:600">${t.departure}</div></div>
+        </div>
+        <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+          <div class="stat-card" style="padding:13px"><div class="stat-label">Passengers</div><div class="stat-value" style="font-size:20px">${t.passengers}/${t.capacity}</div></div>
+          <div class="stat-card" style="padding:13px"><div class="stat-label">Revenue</div><div class="stat-value text-yellow" style="font-size:20px">${fmtMoney(t.revenue)}</div></div>
+          <div class="stat-card" style="padding:13px"><div class="stat-label">Fare</div><div class="stat-value" style="font-size:20px">${fmtMoney(t.fare)}</div></div>
+        </div>
+      </div>`).join('');
+  }catch(e){console.error(e)}
+}
+
+async function loadIssueTab(){
+  // Always fetch fresh trips when opening this tab
+  try{
+    tripsData=await api('/api/conductor/my_trips');
+  }catch(e){tripsData=[];}
+  populateTripSelect();
+}
+
+function populateTripSelect(){
+  const sel=document.getElementById('iss-trip');
+  const noMsg=document.getElementById('no-trips-msg');
+  if(!tripsData.length){
+    sel.innerHTML='<option value="">No trips available</option>';
+    sel.disabled=true;
+    noMsg.style.display='block';
+    document.getElementById('trip-info').style.display='none';
+    return;
+  }
+  sel.disabled=false;
+  noMsg.style.display='none';
+  sel.innerHTML='<option value="">— Select a trip —</option>'+
+    tripsData.map(t=>`<option value="${t.id}">${t.code} | ${t.route} | ${t.departure.slice(0,16)}</option>`).join('');
+}
+
+function onTripSelect(){
+  const id=+document.getElementById('iss-trip').value;
+  const trip=tripsData.find(t=>t.id===id);
+  const info=document.getElementById('trip-info');
+  if(!trip){info.style.display='none';return}
+  info.style.display='block';
+  document.getElementById('ti-route').textContent=trip.route;
+  document.getElementById('ti-bus').textContent=trip.bus;
+  document.getElementById('ti-fare').textContent=fmtMoney(trip.fare);
+  document.getElementById('ti-pax').textContent=trip.passengers+' / '+trip.capacity;
+  document.getElementById('iss-fare').value=trip.fare;
+  document.getElementById('iss-seat').value=trip.passengers+1;
+}
+
+async function startTrip(id,btn){
+  btn.disabled=true;
+  await api(`/api/trips/${id}/status`,'PUT',{status:'active'});
+  toast('Trip started');
+  await loadMyTrips();
+  // Refresh if issue tab is open
+  populateTripSelect();
+}
+
+function gotoIssue(tripId){
+  showTab('issue');
+  setTimeout(()=>{
+    const sel=document.getElementById('iss-trip');
+    sel.value=tripId;
+    onTripSelect();
+  },100);
+}
+
+async function issueTicket(){
+  const tripId=+document.getElementById('iss-trip').value;
+  if(!tripId){toast('Select a trip first','error');return}
+  const btn=document.getElementById('iss-btn');
+  btn.disabled=true;btn.textContent='Issuing...';
+  const body={
+    trip_id:tripId,
+    passenger_name:document.getElementById('iss-name').value,
+    seat_number:document.getElementById('iss-seat').value,
+    fare_paid:+document.getElementById('iss-fare').value,
+    payment_method:document.getElementById('iss-method').value
+  };
+  try{
+    const d=await api('/api/tickets','POST',body);
+    toast('Ticket '+d.ticket_number+' issued');
+    showLastTicket(d.ticket_number,body);
+    addRecentTicket(d,body);
+    tripsData=await api('/api/conductor/my_trips');
+    onTripSelect();
+    document.getElementById('iss-name').value='';
+    document.getElementById('iss-seat').value=+document.getElementById('iss-seat').value+1;
+  }catch(e){toast(e.message,'error')}
+  btn.disabled=false;btn.textContent='Issue Ticket';
+}
+
+function showLastTicket(num,body){
+  const payLabel={cash:'Cash',mpesa:'M-Pesa',card:'Card'};
+  document.getElementById('last-ticket').innerHTML=`
+    <div class="ticket-card">
+      <div class="ticket-number">${num}</div>
+      <div class="ticket-divider"></div>
+      <div style="font-size:13px;display:grid;gap:9px">
+        <div class="flex justify-between"><span class="text-muted">Passenger</span><strong>${body.passenger_name||'—'}</strong></div>
+        <div class="flex justify-between"><span class="text-muted">Seat</span><strong>${body.seat_number||'—'}</strong></div>
+        <div class="flex justify-between"><span class="text-muted">Fare</span><strong class="text-yellow">${fmtMoney(body.fare_paid)}</strong></div>
+        <div class="flex justify-between"><span class="text-muted">Payment</span><strong>${payLabel[body.payment_method]||body.payment_method}</strong></div>
+        <div class="flex justify-between"><span class="text-muted">Issued at</span><strong>${new Date().toLocaleTimeString()}</strong></div>
+      </div>
+      <div class="ticket-divider"></div>
+      <div style="text-align:center;font-size:11px;color:var(--text3);letter-spacing:0.5px">BusTix Digital Ticketing System</div>
+    </div>`;
+}
+
+function addRecentTicket(d,body){
+  recentTickets.unshift({num:d.ticket_number,fare:body.fare_paid,method:body.payment_method,time:new Date().toLocaleTimeString()});
+  if(recentTickets.length>10)recentTickets.pop();
+  const payLabel={cash:'Cash',mpesa:'M-Pesa',card:'Card'};
+  document.getElementById('recent-tickets').innerHTML=recentTickets.map(t=>`
+    <div class="flex justify-between items-center" style="padding:10px 0;border-bottom:1px solid var(--border)">
+      <div><code style="color:var(--accent);font-size:12px;font-weight:600">${t.num}</code><div class="text-sm text-muted">${t.time} &nbsp;·&nbsp; ${payLabel[t.method]}</div></div>
+      <strong class="text-yellow">${fmtMoney(t.fare)}</strong>
+    </div>`).join('');
+}
+
+async function loadSummary(){
+  const trips=await api('/api/conductor/my_trips');
+  const el=document.getElementById('my-summary');
+  const totalPax=trips.reduce((a,t)=>a+t.passengers,0);
+  const totalRev=trips.reduce((a,t)=>a+t.revenue,0);
+  el.innerHTML=`
+    <div class="stat-grid" style="margin-bottom:18px">
+      <div class="stat-card"><div class="stat-top-bar" style="background:var(--accent)"></div><div class="stat-label">My Revenue Today</div><div class="stat-value text-yellow">${fmtMoney(totalRev)}</div></div>
+      <div class="stat-card"><div class="stat-top-bar" style="background:var(--blue)"></div><div class="stat-label">Passengers Today</div><div class="stat-value">${totalPax}</div></div>
+      <div class="stat-card"><div class="stat-top-bar" style="background:var(--green)"></div><div class="stat-label">Trips Assigned</div><div class="stat-value">${trips.length}</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title">Trip Breakdown</div></div>
+      <table class="tbl"><thead><tr><th>Trip Code</th><th>Route</th><th>Status</th><th>Passengers</th><th>Revenue</th></tr></thead>
+      <tbody>${trips.map(t=>`<tr><td><code style="color:var(--accent);font-weight:600">${t.code}</code></td><td style="font-weight:500">${t.route}</td><td><span class="status ${t.status}">${t.status}</span></td><td>${t.passengers}/${t.capacity}</td><td class="text-yellow" style="font-weight:600">${fmtMoney(t.revenue)}</td></tr>`).join('')||'<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:20px">No trips assigned</td></tr>'}</tbody>
+      </table>
+    </div>`;
+}
+
+// Init
+loadMyTrips();
+setInterval(()=>{if(document.getElementById('tab-my-trips').style.display!=='none')loadMyTrips()},15000);
+</script>
+{% endblock %}

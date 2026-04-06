@@ -1,0 +1,343 @@
+{% extends "base.html" %}
+{% block title %}Manager — BusTix{% endblock %}
+{% block role_label %}Manager{% endblock %}
+
+{% block nav %}
+<div class="nav-section">Overview</div>
+<a class="nav-item active" onclick="showTab('dashboard')"><div class="nav-dot"></div>Dashboard</a>
+<a class="nav-item" onclick="showTab('trips')"><div class="nav-dot"></div>Live Trips</a>
+<a class="nav-item" href="/manager/reports"><div class="nav-dot"></div>Reports</a>
+<div class="nav-section">Management</div>
+<a class="nav-item" onclick="showTab('routes')"><div class="nav-dot"></div>Routes</a>
+<a class="nav-item" onclick="showTab('buses')"><div class="nav-dot"></div>Fleet</a>
+<a class="nav-item" onclick="showTab('staff')"><div class="nav-dot"></div>Staff</a>
+<a class="nav-item" onclick="showTab('schedule')"><div class="nav-dot"></div>Schedule Trip</a>
+{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <h1 id="topbar-title">Dashboard</h1>
+  <span class="live-badge"><span class="live-dot"></span>Live</span>
+  <button class="btn btn-primary btn-sm" onclick="showTab('schedule')">+ New Trip</button>
+</div>
+<div class="content" id="main-content">
+
+<!-- DASHBOARD -->
+<div id="tab-dashboard">
+  <div class="stat-grid" id="stat-cards">
+    <div class="stat-card"><div class="stat-top-bar" style="background:var(--accent)"></div><div class="stat-label">Today's Revenue</div><div class="stat-value text-yellow" id="s-revenue">—</div><div class="stat-sub" id="s-revenue-sub">Loading...</div></div>
+    <div class="stat-card"><div class="stat-top-bar" style="background:var(--blue)"></div><div class="stat-label">Tickets Today</div><div class="stat-value" id="s-tickets">—</div><div class="stat-sub" id="s-tickets-sub">Loading...</div></div>
+    <div class="stat-card"><div class="stat-top-bar" style="background:var(--green)"></div><div class="stat-label">Active Trips</div><div class="stat-value text-green" id="s-active">—</div><div class="stat-sub" id="s-active-sub">Currently running</div></div>
+    <div class="stat-card"><div class="stat-top-bar" style="background:#8B5CF6"></div><div class="stat-label">Total Passengers</div><div class="stat-value" id="s-pax">—</div><div class="stat-sub">All time</div></div>
+  </div>
+
+  <div class="grid-3">
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title">Revenue — Last 7 Days</div></div>
+      <canvas id="revenueChart" height="200"></canvas>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title">Revenue by Route</div></div>
+      <canvas id="routeChart" height="200"></canvas>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-title">Active Trips</div>
+      <button class="btn btn-ghost btn-sm" onclick="loadTripsForDashboard()">Refresh</button>
+    </div>
+    <div id="live-trips-mini"></div>
+  </div>
+</div>
+
+<!-- LIVE TRIPS -->
+<div id="tab-trips" style="display:none">
+  <div class="flex justify-between items-center mb-4">
+    <div class="panel-title" style="font-size:16px;font-weight:600">All Active Trips</div>
+    <button class="btn btn-ghost btn-sm" onclick="loadTrips()">Refresh</button>
+  </div>
+  <div id="trips-list"></div>
+</div>
+
+<!-- ROUTES -->
+<div id="tab-routes" style="display:none">
+  <div class="flex justify-between items-center mb-4">
+    <div class="panel-title" style="font-size:16px;font-weight:600">Routes</div>
+    <button class="btn btn-primary btn-sm" onclick="openModal('modal-route')">Add Route</button>
+  </div>
+  <div class="panel"><table class="tbl"><thead><tr><th>Route Name</th><th>Origin</th><th>Destination</th><th>Base Fare</th></tr></thead><tbody id="routes-tbody"></tbody></table></div>
+</div>
+
+<!-- FLEET -->
+<div id="tab-buses" style="display:none">
+  <div class="flex justify-between items-center mb-4">
+    <div class="panel-title" style="font-size:16px;font-weight:600">Fleet</div>
+    <button class="btn btn-primary btn-sm" onclick="openModal('modal-bus')">Add Bus</button>
+  </div>
+  <div class="panel"><table class="tbl"><thead><tr><th>Registration</th><th>Model</th><th>Capacity</th></tr></thead><tbody id="buses-tbody"></tbody></table></div>
+</div>
+
+<!-- STAFF -->
+<div id="tab-staff" style="display:none">
+  <div class="flex justify-between items-center mb-4">
+    <div class="panel-title" style="font-size:16px;font-weight:600">Staff</div>
+    <button class="btn btn-primary btn-sm" onclick="openModal('modal-staff')">Add User</button>
+  </div>
+  <div class="panel"><table class="tbl"><thead><tr><th>Name</th><th>Username</th><th>Role</th></tr></thead><tbody id="staff-tbody"></tbody></table></div>
+</div>
+
+<!-- SCHEDULE -->
+<div id="tab-schedule" style="display:none">
+  <div class="panel" style="max-width:520px">
+    <div class="panel-header"><div class="panel-title">Schedule New Trip</div></div>
+    <div class="field"><label>Route</label><select id="sch-route"></select></div>
+    <div class="field"><label>Bus</label><select id="sch-bus"></select></div>
+    <div class="field"><label>Conductor</label><select id="sch-conductor"></select></div>
+    <div class="field"><label>Departure Date &amp; Time</label><input type="datetime-local" id="sch-departure"></div>
+    <button class="btn btn-primary w-full" onclick="createTrip()">Schedule Trip</button>
+  </div>
+</div>
+
+<!-- TRIP DETAIL MODAL -->
+<div class="modal-overlay" id="modal-trip-detail">
+  <div class="modal" style="max-width:580px">
+    <div class="flex justify-between items-center mb-4">
+      <h2 id="td-title">Trip Detail</h2>
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('modal-trip-detail')">Close</button>
+    </div>
+    <div id="td-info" class="mb-4"></div>
+    <div class="panel-header"><div class="panel-title">Tickets</div><span id="td-summary" class="text-muted text-sm"></span></div>
+    <table class="tbl"><thead><tr><th>Ticket No.</th><th>Passenger</th><th>Seat</th><th>Fare</th><th>Payment</th><th>Time</th></tr></thead>
+    <tbody id="td-tickets"></tbody></table>
+  </div>
+</div>
+
+<!-- ADD ROUTE MODAL -->
+<div class="modal-overlay" id="modal-route">
+  <div class="modal">
+    <h2>Add Route</h2>
+    <div class="field"><label>Route Name</label><input id="r-name" placeholder="Nairobi–Mombasa Express"></div>
+    <div class="form-row">
+      <div class="field"><label>Origin</label><input id="r-origin" placeholder="Nairobi"></div>
+      <div class="field"><label>Destination</label><input id="r-dest" placeholder="Mombasa"></div>
+    </div>
+    <div class="form-row">
+      <div class="field"><label>Base Fare (KSh)</label><input id="r-fare" type="number" placeholder="1500"></div>
+      <div class="field"><label>Distance (km)</label><input id="r-dist" type="number" placeholder="480"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-route')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveRoute()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ADD BUS MODAL -->
+<div class="modal-overlay" id="modal-bus">
+  <div class="modal">
+    <h2>Add Bus</h2>
+    <div class="field"><label>Registration Number</label><input id="b-reg" placeholder="KDA 001K"></div>
+    <div class="form-row">
+      <div class="field"><label>Model</label><input id="b-model" placeholder="Scania Marcopolo"></div>
+      <div class="field"><label>Capacity</label><input id="b-cap" type="number" placeholder="49"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-bus')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveBus()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ADD STAFF MODAL -->
+<div class="modal-overlay" id="modal-staff">
+  <div class="modal">
+    <h2>Add Staff Member</h2>
+    <div class="field"><label>Full Name</label><input id="st-name" placeholder="John Doe"></div>
+    <div class="form-row">
+      <div class="field"><label>Username</label><input id="st-user" placeholder="johndoe"></div>
+      <div class="field"><label>Password</label><input id="st-pass" type="password" placeholder=""></div>
+    </div>
+    <div class="field"><label>Role</label>
+      <select id="st-role"><option value="conductor">Conductor</option><option value="manager">Manager</option></select>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-staff')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveStaff()">Save</button>
+    </div>
+  </div>
+</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let revenueChart=null,routeChart=null;
+const tabs=['dashboard','trips','routes','buses','staff','schedule'];
+const tabTitles={dashboard:'Dashboard',trips:'Live Trips',routes:'Routes',buses:'Fleet',staff:'Staff',schedule:'Schedule Trip'};
+
+function showTab(name){
+  tabs.forEach(t=>{
+    const el=document.getElementById('tab-'+t);
+    if(el)el.style.display=t===name?'':'none';
+    document.querySelectorAll('.nav-item').forEach(el=>{
+      if(el.getAttribute('onclick')===`showTab('${t}')`)el.classList.toggle('active',t===name);
+    });
+  });
+  document.getElementById('topbar-title').textContent=tabTitles[name]||name;
+  if(name==='dashboard')loadDashboard();
+  if(name==='trips')loadTrips();
+  if(name==='routes')loadRoutes();
+  if(name==='buses')loadBuses();
+  if(name==='staff')loadStaff();
+  if(name==='schedule')loadScheduleForm();
+}
+
+function openModal(id){document.getElementById(id).classList.add('open')}
+function closeModal(id){document.getElementById(id).classList.remove('open')}
+document.querySelectorAll('.modal-overlay').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('open')}));
+
+async function loadDashboard(){
+  const d=await api('/api/stats/overview');
+  document.getElementById('s-revenue').textContent=fmtMoney(d.today_revenue);
+  document.getElementById('s-revenue-sub').textContent=d.today_tickets+' tickets today';
+  document.getElementById('s-tickets').textContent=fmtNum(d.today_tickets);
+  document.getElementById('s-tickets-sub').textContent=d.today_trips+' trips today';
+  document.getElementById('s-active').textContent=d.active_trips;
+  document.getElementById('s-pax').textContent=fmtNum(d.total_passengers);
+
+  const rCtx=document.getElementById('revenueChart').getContext('2d');
+  if(revenueChart)revenueChart.destroy();
+  revenueChart=new Chart(rCtx,{type:'bar',data:{
+    labels:d.week_data.map(x=>x.date),
+    datasets:[
+      {label:'Revenue (KSh)',data:d.week_data.map(x=>x.revenue),backgroundColor:'rgba(232,160,32,0.2)',borderColor:'#E8A020',borderWidth:2,borderRadius:5},
+      {label:'Tickets',data:d.week_data.map(x=>x.tickets),backgroundColor:'rgba(59,130,246,0.15)',borderColor:'#3B82F6',borderWidth:2,borderRadius:5,yAxisID:'y1'}
+    ]
+  },options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#94A3B8',font:{size:11,family:'Inter'}}}},scales:{x:{grid:{color:'rgba(30,45,69,0.8)'},ticks:{color:'#94A3B8',font:{family:'Inter'}}},y:{grid:{color:'rgba(30,45,69,0.8)'},ticks:{color:'#94A3B8',font:{family:'Inter'},callback:v=>'KSh '+v.toLocaleString()}},y1:{position:'right',grid:{display:false},ticks:{color:'#3B82F6',font:{family:'Inter'}}}}}});
+
+  const rtCtx=document.getElementById('routeChart').getContext('2d');
+  if(routeChart)routeChart.destroy();
+  routeChart=new Chart(rtCtx,{type:'doughnut',data:{
+    labels:d.routes.map(x=>x.name.replace('Nairobi–','').replace('Mombasa–','')),
+    datasets:[{data:d.routes.map(x=>x.revenue),backgroundColor:['rgba(232,160,32,0.8)','rgba(59,130,246,0.8)','rgba(34,197,94,0.8)','rgba(139,92,246,0.8)','rgba(239,68,68,0.8)'],borderWidth:0,hoverOffset:6}]
+  },options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#94A3B8',font:{size:11,family:'Inter'},padding:10}}}}});
+
+  loadTripsForDashboard();
+}
+
+async function loadTripsForDashboard(){
+  const trips=await api('/api/trips/live');
+  const el=document.getElementById('live-trips-mini');
+  if(!trips.length){el.innerHTML='<div class="empty"><p>No active trips at the moment</p></div>';return}
+  el.innerHTML=`<table class="tbl"><thead><tr><th>Code</th><th>Route</th><th>Bus</th><th>Conductor</th><th>Departs</th><th>Passengers</th><th>Revenue</th><th>Status</th><th></th></tr></thead><tbody>${trips.map(t=>`
+    <tr>
+      <td><code style="color:var(--accent);font-size:12px;font-weight:600">${t.code}</code></td>
+      <td style="font-weight:500">${t.route}</td><td>${t.bus}</td><td>${t.conductor}</td><td>${t.departure}</td>
+      <td>
+        <div class="flex items-center gap-2">${t.passengers}/${t.capacity}
+          <div class="progress-bar" style="width:52px"><div class="progress-fill" style="width:${Math.min(100,t.passengers/t.capacity*100)}%;background:${t.passengers/t.capacity>.85?'var(--red)':'var(--green)'}"></div></div>
+        </div>
+      </td>
+      <td class="text-yellow" style="font-weight:600">${fmtMoney(t.revenue)}</td>
+      <td><span class="status ${t.status}">${t.status}</span></td>
+      <td><button class="btn btn-ghost btn-sm" onclick="viewTrip(${t.id})">View</button></td>
+    </tr>`).join('')}</tbody></table>`;
+}
+
+async function loadTrips(){
+  const trips=await api('/api/trips/live');
+  const el=document.getElementById('trips-list');
+  if(!trips.length){el.innerHTML='<div class="panel"><div class="empty"><p>No active or scheduled trips</p></div></div>';return}
+  el.innerHTML=trips.map(t=>`
+    <div class="panel mb-4" style="margin-bottom:14px">
+      <div class="flex justify-between items-center mb-4">
+        <div class="flex items-center gap-2">
+          <code style="color:var(--accent);font-size:13px;font-weight:700">${t.code}</code>
+          <span class="status ${t.status}">${t.status}</span>
+        </div>
+        <div class="flex gap-2">
+          ${t.status==='scheduled'?`<button class="btn btn-green btn-sm" onclick="updateStatus(${t.id},'active',this)">Start Trip</button>`:''}
+          ${t.status==='active'?`<button class="btn btn-ghost btn-sm" onclick="updateStatus(${t.id},'completed',this)">Mark Complete</button>`:''}
+          <button class="btn btn-ghost btn-sm" onclick="viewTrip(${t.id})">View Tickets</button>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px">
+        <div><div class="text-sm text-muted" style="margin-bottom:3px">Route</div><div style="font-weight:600">${t.route}</div></div>
+        <div><div class="text-sm text-muted" style="margin-bottom:3px">Bus</div><div style="font-weight:600">${t.bus}</div></div>
+        <div><div class="text-sm text-muted" style="margin-bottom:3px">Conductor</div><div style="font-weight:600">${t.conductor}</div></div>
+        <div><div class="text-sm text-muted" style="margin-bottom:3px">Departure</div><div style="font-weight:600">${t.departure}</div></div>
+      </div>
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);display:flex;align-items:center;gap:22px">
+        <div class="flex items-center gap-2 text-sm"><span class="text-muted">Passengers:</span><strong>${t.passengers}/${t.capacity}</strong>
+          <div class="progress-bar" style="width:80px"><div class="progress-fill" style="width:${Math.min(100,t.passengers/t.capacity*100)}%;background:${t.passengers/t.capacity>.85?'var(--red)':'var(--green)'}"></div></div>
+        </div>
+        <div class="flex items-center gap-2 text-sm"><span class="text-muted">Revenue:</span><strong class="text-yellow">${fmtMoney(t.revenue)}</strong></div>
+      </div>
+    </div>`).join('');
+}
+
+async function viewTrip(id){
+  const d=await api(`/api/trips/${id}/tickets`);
+  document.getElementById('td-title').textContent=`${d.trip.code} — ${d.trip.route}`;
+  document.getElementById('td-info').innerHTML=`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px"><div class="stat-card" style="padding:14px"><div class="stat-label">Passengers</div><div class="stat-value" style="font-size:22px">${d.total_passengers}</div></div><div class="stat-card" style="padding:14px"><div class="stat-label">Revenue</div><div class="stat-value text-yellow" style="font-size:22px">${fmtMoney(d.total_revenue)}</div></div><div class="stat-card" style="padding:14px"><div class="stat-label">Status</div><div style="margin-top:8px"><span class="status ${d.trip.status}">${d.trip.status}</span></div></div></div>`;
+  document.getElementById('td-summary').textContent=`${d.total_passengers} tickets`;
+  document.getElementById('td-tickets').innerHTML=d.tickets.length?d.tickets.map(t=>`<tr><td><code style="color:var(--accent);font-size:11px;font-weight:600">${t.number}</code></td><td>${t.passenger||'—'}</td><td>${t.seat||'—'}</td><td class="text-yellow" style="font-weight:600">${fmtMoney(t.fare)}</td><td>${t.payment}</td><td class="text-muted">${t.time}</td></tr>`).join(''):'<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:24px">No tickets issued yet</td></tr>';
+  openModal('modal-trip-detail');
+}
+
+async function updateStatus(id,status,btn){
+  btn.disabled=true;
+  await api(`/api/trips/${id}/status`,'PUT',{status});
+  toast('Trip status updated');
+  loadTrips();
+}
+
+async function loadRoutes(){
+  const routes=await api('/api/routes');
+  document.getElementById('routes-tbody').innerHTML=routes.map(r=>`<tr><td style="font-weight:500">${r.name}</td><td>${r.origin}</td><td>${r.destination}</td><td class="text-yellow" style="font-weight:600">${fmtMoney(r.fare)}</td></tr>`).join('');
+}
+
+async function loadBuses(){
+  const buses=await api('/api/buses');
+  document.getElementById('buses-tbody').innerHTML=buses.map(b=>`<tr><td><code style="color:var(--blue);font-weight:600">${b.reg}</code></td><td>${b.model||'—'}</td><td>${b.capacity} seats</td></tr>`).join('');
+}
+
+async function loadStaff(){
+  const data=await api('/api/conductors');
+  document.getElementById('staff-tbody').innerHTML=data.map(u=>`<tr><td style="font-weight:500">${u.name}</td><td><code style="color:var(--text2)">${u.username}</code></td><td><span class="status scheduled">Conductor</span></td></tr>`).join('');
+}
+
+async function loadScheduleForm(){
+  const [routes,buses,conductors]=await Promise.all([api('/api/routes'),api('/api/buses'),api('/api/conductors')]);
+  document.getElementById('sch-route').innerHTML=routes.map(r=>`<option value="${r.id}">${r.origin} to ${r.destination} — KSh ${fmtNum(r.fare)}</option>`).join('');
+  document.getElementById('sch-bus').innerHTML=buses.map(b=>`<option value="${b.id}">${b.reg} — ${b.model} (${b.capacity} seats)</option>`).join('');
+  document.getElementById('sch-conductor').innerHTML=conductors.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+  const now=new Date();now.setMinutes(0,0,0);
+  document.getElementById('sch-departure').value=now.toISOString().slice(0,16);
+}
+
+async function createTrip(){
+  const body={route_id:+document.getElementById('sch-route').value,bus_id:+document.getElementById('sch-bus').value,conductor_id:+document.getElementById('sch-conductor').value,departure_time:document.getElementById('sch-departure').value};
+  try{const d=await api('/api/trips','POST',body);toast('Trip '+d.trip_code+' scheduled');showTab('trips')}catch(e){toast(e.message,'error')}
+}
+
+async function saveRoute(){
+  const body={name:document.getElementById('r-name').value,origin:document.getElementById('r-origin').value,destination:document.getElementById('r-dest').value,fare:document.getElementById('r-fare').value,distance:document.getElementById('r-dist').value};
+  try{await api('/api/routes','POST',body);toast('Route saved');closeModal('modal-route');loadRoutes()}catch(e){toast(e.message,'error')}
+}
+
+async function saveBus(){
+  const body={reg_number:document.getElementById('b-reg').value,model:document.getElementById('b-model').value,capacity:document.getElementById('b-cap').value};
+  try{await api('/api/buses','POST',body);toast('Bus added');closeModal('modal-bus');loadBuses()}catch(e){toast(e.message,'error')}
+}
+
+async function saveStaff(){
+  const body={full_name:document.getElementById('st-name').value,username:document.getElementById('st-user').value,password:document.getElementById('st-pass').value,role:document.getElementById('st-role').value};
+  try{await api('/api/users','POST',body);toast('Staff member added');closeModal('modal-staff');loadStaff()}catch(e){toast(e.message,'error')}
+}
+
+loadDashboard();
+setInterval(()=>{if(document.getElementById('tab-dashboard').style.display!=='none')loadDashboard()},30000);
+</script>
+{% endblock %}

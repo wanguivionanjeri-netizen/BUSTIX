@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block title %}Reports — BusTix{% endblock %}
+{% block role_label %}Manager{% endblock %}
+
+{% block nav %}
+<div class="nav-section">Navigation</div>
+<a class="nav-item" href="/manager"><div class="nav-dot"></div>Dashboard</a>
+<a class="nav-item" href="/manager"><div class="nav-dot"></div>Live Trips</a>
+<a class="nav-item active" href="/manager/reports"><div class="nav-dot"></div>Reports</a>
+{% endblock %}
+
+{% block head %}
+<style>
+.report-filter{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:20px;display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap}
+.report-filter .field{margin-bottom:0;flex:1;min-width:140px}
+.summary-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <h1>Reports &amp; Analytics</h1>
+  <button class="btn btn-ghost btn-sm" onclick="exportCSV()">Export CSV</button>
+</div>
+<div class="content">
+
+  <div class="tabs">
+    <button class="tab active" onclick="switchReport('trips',this)">Trip Reports</button>
+    <button class="tab" onclick="switchReport('revenue',this)">Revenue Trend</button>
+  </div>
+
+  <div class="report-filter">
+    <div class="field"><label>From</label><input type="date" id="f-from"></div>
+    <div class="field"><label>To</label><input type="date" id="f-to"></div>
+    <div class="field" id="route-filter-field"><label>Route</label>
+      <select id="f-route"><option value="">All Routes</option></select></div>
+    <div class="field" id="days-filter-field" style="display:none"><label>Period</label>
+      <select id="f-days"><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option></select></div>
+    <button class="btn btn-primary" onclick="loadReport()">Generate</button>
+  </div>
+
+  <div class="summary-strip">
+    <div class="stat-card"><div class="stat-top-bar" style="background:var(--accent)"></div><div class="stat-label">Total Revenue</div><div class="stat-value text-yellow" id="r-revenue">—</div></div>
+    <div class="stat-card"><div class="stat-top-bar" style="background:var(--blue)"></div><div class="stat-label">Total Passengers</div><div class="stat-value" id="r-pax">—</div></div>
+    <div class="stat-card"><div class="stat-top-bar" style="background:var(--green)"></div><div class="stat-label">Trips</div><div class="stat-value" id="r-trips">—</div><div class="stat-sub" id="r-avg"></div></div>
+  </div>
+
+  <div class="panel" style="margin-bottom:18px">
+    <div class="panel-header"><div class="panel-title" id="chart-title">Revenue Trend</div></div>
+    <div style="position:relative;height:280px"><canvas id="reportChart"></canvas></div>
+  </div>
+
+  <div class="panel" id="table-panel">
+    <div class="panel-header"><div class="panel-title">Trip Details</div><span class="text-muted text-sm" id="row-count"></span></div>
+    <div style="overflow-x:auto">
+      <table class="tbl">
+        <thead><tr><th>Trip Code</th><th>Route</th><th>Bus</th><th>Conductor</th><th>Departure</th><th>Status</th><th>Passengers</th><th>Revenue</th></tr></thead>
+        <tbody id="report-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentReport='trips';
+let reportChart=null;
+let reportData=[];
+
+function switchReport(type,btn){
+  currentReport=type;
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('route-filter-field').style.display=type==='trips'?'':'none';
+  document.getElementById('days-filter-field').style.display=type==='revenue'?'':'none';
+  document.getElementById('table-panel').style.display=type==='trips'?'':'none';
+  loadReport();
+}
+
+async function init(){
+  const now=new Date();
+  const from=new Date(now.getFullYear(),now.getMonth(),1);
+  document.getElementById('f-from').value=from.toISOString().slice(0,10);
+  document.getElementById('f-to').value=now.toISOString().slice(0,10);
+  const routes=await api('/api/routes');
+  document.getElementById('f-route').innerHTML='<option value="">All Routes</option>'+routes.map(r=>`<option value="${r.id}">${r.origin} to ${r.destination}</option>`).join('');
+  loadReport();
+}
+
+async function loadReport(){
+  if(currentReport==='trips')await loadTripsReport();
+  else await loadRevenueReport();
+}
+
+async function loadTripsReport(){
+  const from=document.getElementById('f-from').value;
+  const to=document.getElementById('f-to').value;
+  const route=document.getElementById('f-route').value;
+  let url=`/api/reports/trips?from=${from}&to=${to}`;
+  if(route)url+=`&route_id=${route}`;
+  const d=await api(url);
+  reportData=d.trips;
+  document.getElementById('r-revenue').textContent=fmtMoney(d.total_revenue);
+  document.getElementById('r-pax').textContent=fmtNum(d.total_passengers);
+  document.getElementById('r-trips').textContent=fmtNum(d.trips.length);
+  document.getElementById('r-avg').textContent=d.trips.length?'Avg '+fmtMoney(d.total_revenue/d.trips.length)+' per trip':'';
+  document.getElementById('row-count').textContent=d.trips.length+' trips';
+
+  const byDay={};
+  d.trips.forEach(t=>{const day=t.departure.slice(0,10);if(!byDay[day])byDay[day]={rev:0,trips:0};byDay[day].rev+=t.revenue;byDay[day].trips+=1});
+  const days=Object.keys(byDay).sort();
+  renderChart({labels:days,datasets:[
+    {label:'Revenue (KSh)',data:days.map(d=>byDay[d].rev),backgroundColor:'rgba(232,160,32,0.15)',borderColor:'#E8A020',borderWidth:2,tension:.4,fill:true,yAxisID:'y'},
+    {label:'Trips',data:days.map(d=>byDay[d].trips),backgroundColor:'rgba(59,130,246,0.15)',borderColor:'#3B82F6',borderWidth:2,tension:.4,fill:false,yAxisID:'y1'}
+  ]});
+
+  document.getElementById('report-tbody').innerHTML=d.trips.length?d.trips.map(t=>`
+    <tr>
+      <td><code style="color:var(--accent);font-size:12px;font-weight:600">${t.code}</code></td>
+      <td style="font-weight:500">${t.route}</td>
+      <td><code style="color:var(--text2)">${t.bus}</code></td>
+      <td>${t.conductor}</td>
+      <td class="text-muted">${t.departure}</td>
+      <td><span class="status ${t.status}">${t.status}</span></td>
+      <td>${fmtNum(t.passengers)}</td>
+      <td class="text-yellow" style="font-weight:600">${fmtMoney(t.revenue)}</td>
+    </tr>`).join(''):'<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:30px">No trips found for this period</td></tr>';
+}
+
+async function loadRevenueReport(){
+  const days=document.getElementById('f-days').value;
+  const d=await api(`/api/reports/revenue?days=${days}`);
+  reportData=d;
+  const totalRev=d.reduce((a,x)=>a+x.revenue,0);
+  const totalPax=d.reduce((a,x)=>a+x.tickets,0);
+  const totalTrips=d.reduce((a,x)=>a+x.trips,0);
+  document.getElementById('r-revenue').textContent=fmtMoney(totalRev);
+  document.getElementById('r-pax').textContent=fmtNum(totalPax);
+  document.getElementById('r-trips').textContent=fmtNum(totalTrips);
+  document.getElementById('r-avg').textContent=totalTrips?'Avg '+fmtMoney(totalRev/totalTrips)+' per trip':'';
+  renderChart({labels:d.map(x=>x.date),datasets:[
+    {label:'Revenue (KSh)',data:d.map(x=>x.revenue),backgroundColor:'rgba(232,160,32,0.12)',borderColor:'#E8A020',borderWidth:2,tension:.4,fill:true,yAxisID:'y'},
+    {label:'Tickets',data:d.map(x=>x.tickets),backgroundColor:'rgba(34,197,94,0.12)',borderColor:'#22C55E',borderWidth:2,tension:.4,fill:false,yAxisID:'y1'}
+  ]});
+}
+
+function renderChart(data){
+  const ctx=document.getElementById('reportChart').getContext('2d');
+  if(reportChart)reportChart.destroy();
+  reportChart=new Chart(ctx,{type:'line',data,options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#94A3B8',font:{size:11,family:'Inter'}}}},scales:{x:{grid:{color:'rgba(30,45,69,0.8)'},ticks:{color:'#94A3B8',font:{family:'Inter'},maxTicksLimit:14}},y:{grid:{color:'rgba(30,45,69,0.8)'},ticks:{color:'#94A3B8',font:{family:'Inter'},callback:v=>'KSh '+v.toLocaleString()}},y1:{position:'right',grid:{display:false},ticks:{color:'#22C55E',font:{family:'Inter'}}}}}});
+}
+
+function exportCSV(){
+  if(!reportData.length){toast('No data to export','error');return}
+  const keys=Object.keys(reportData[0]);
+  const csv=[keys.join(','),...reportData.map(r=>keys.map(k=>JSON.stringify(r[k]??'')).join(','))].join('\n');
+  const a=document.createElement('a');a.href='data:text/csv,'+encodeURIComponent(csv);a.download='bustix_report.csv';a.click();
+  toast('CSV exported');
+}
+
+init();
+</script>
+{% endblock %}
